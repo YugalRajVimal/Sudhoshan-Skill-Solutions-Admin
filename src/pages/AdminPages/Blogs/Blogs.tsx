@@ -1,7 +1,10 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import Quill from "quill";
+import "quill/dist/quill.snow.css";
 
 // --- Blog types reflecting backend schema ---
 export interface Blog {
@@ -29,6 +32,62 @@ function dateToString(d: Date | null): string {
   const iso = d.toISOString();
   return iso.split("T")[0];
 }
+
+// --- Quill Editor wrapper component using Quill directly ---
+interface QuillEditorProps {
+  value: string;
+  onChange: (val: string) => void;
+}
+
+const QuillEditor: React.FC<QuillEditorProps> = ({ value, onChange }) => {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const quillInstance = useRef<Quill | null>(null);
+
+  useEffect(() => {
+    if (!editorRef.current) return;
+
+    // Init only once
+    if (!quillInstance.current) {
+      quillInstance.current = new Quill(editorRef.current, {
+        theme: 'snow',
+        modules: {
+          toolbar: [
+            [{ header: [1, 2, 3, false] }],
+            ["bold", "italic", "underline"],
+            [{ list: "ordered" }, { list: "bullet" }],
+            ["link", "image"],
+            ["clean"],
+          ],
+        },
+      });
+
+      quillInstance.current.on('text-change', () => {
+        const html = editorRef.current?.querySelector('.ql-editor')?.innerHTML ?? "";
+        if (html === "<p><br></p>" || html === "") {
+          onChange("");
+        } else {
+          onChange(html);
+        }
+      });
+    }
+
+    // set value from prop, but only if different
+    if (quillInstance.current) {
+      const currentHtml = quillInstance.current.root.innerHTML;
+      // Avoid cursor jump: only set if value prop is not currentHtml.
+      if (value !== currentHtml && !(value === "" && currentHtml === "<p><br></p>")) {
+        quillInstance.current.root.innerHTML = value || "";
+      }
+    }
+    // eslint-disable-next-line
+  }, [value]);
+
+  return (
+    <div style={{ minHeight: 180 }} className="bg-white border rounded quill-editor-container">
+      <div ref={editorRef} />
+    </div>
+  );
+};
 
 const Blogs: React.FC = () => {
   const [blogs, setBlogs] = useState<Blog[]>([]);
@@ -359,7 +418,10 @@ const Blogs: React.FC = () => {
             </div>
             <div className="mb-2">
               <span className="font-semibold text-gray-700">Content:</span>
-              <div className="p-2 border rounded mt-1 bg-gray-50 text-gray-800 whitespace-pre-line max-h-[300px] overflow-y-auto">{viewingBlog.content}</div>
+              {/* RENDER QUILLED CONTENT AS HTML (sanitized in backend) */}
+              <div className="p-2 border rounded mt-1 bg-gray-50 text-gray-800 max-h-[300px] overflow-y-auto ql-editor"
+                dangerouslySetInnerHTML={{ __html: viewingBlog.content || "" }}
+              />
             </div>
           </div>
         </div>
@@ -488,15 +550,9 @@ const Blogs: React.FC = () => {
                 <label className="block mb-1 font-semibold text-gray-700">
                   Content<span className="text-red-500">*</span>
                 </label>
-                <textarea
+                <QuillEditor
                   value={formValues.content}
-                  required
-                  minLength={5}
-                  rows={6}
-                  onChange={e => updateFormField("content", e.target.value)}
-                  className="w-full px-3 py-2 border rounded shadow-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition placeholder:text-gray-400 resize-vertical"
-                  placeholder="Write your blog content here..."
-                  maxLength={6000}
+                  onChange={(value: string) => updateFormField("content", value)}
                 />
               </div>
               <div className="mt-7 flex gap-4 items-center justify-end">
