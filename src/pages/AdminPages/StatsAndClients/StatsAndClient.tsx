@@ -97,7 +97,7 @@ const StatsAndClientAdmin: React.FC = () => {
   const [clientForm, setClientForm] = useState<ClientForm>(DEFAULT_CLIENT);
 
   const [deletingType, setDeletingType] = useState<"stat" | "client" | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+
 
   const statInputRef = useRef<HTMLInputElement>(null);
   const clientInputRef = useRef<HTMLInputElement>(null);
@@ -336,7 +336,6 @@ const StatsAndClientAdmin: React.FC = () => {
     )
       return;
     setDeletingType(type);
-    setDeletingId(id);
     clearAlerts();
     const baseURL = import.meta.env.VITE_API_URL;
     try {
@@ -355,7 +354,6 @@ const StatsAndClientAdmin: React.FC = () => {
       );
     }
     setDeletingType(null);
-    setDeletingId(null);
   };
 
   return (
