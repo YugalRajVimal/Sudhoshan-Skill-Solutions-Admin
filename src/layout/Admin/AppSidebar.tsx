@@ -51,6 +51,21 @@ const navItems: NavItem[] = [
     name: "Subscribed Users",
     path: "/admin/subscribed-users",
   },
+  {
+    icon: <UserIcon />,
+    name: "Testimonials",
+    path: "/admin/testimonials",
+  },
+  {
+    icon: <UserIcon />,
+    name: "Team Members",
+    path: "/admin/team-members",
+  },
+  {
+    icon: <GridIcon />,
+    name: "Stats & Clients",
+    path: "/admin/stats-and-clients",
+  },
 
   // {
   //   icon: <FileIcon />,

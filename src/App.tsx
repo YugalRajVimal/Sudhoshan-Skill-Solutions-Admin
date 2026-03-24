@@ -42,6 +42,9 @@ import Jobs from "./pages/AdminPages/Jobs/Jobs";
 import Cources from "./pages/AdminPages/Cources/Cources";
 import Blogs from "./pages/AdminPages/Blogs/Blogs";
 import SubscribedUsersPage from "./pages/AdminPages/SubscribedUsers";
+import Testimonials from "./pages/AdminPages/Testimonials/Testimonials";
+import TeamMembers from "./pages/AdminPages/TeamMembers/TeamMembers";
+import StatsAndClientAdmin from "./pages/AdminPages/StatsAndClients/StatsAndClient";
 
 
 export default function App() {
@@ -95,6 +98,12 @@ export default function App() {
             <Route path="/admin/cources" element={<Cources />} />
             <Route path="/admin/blogs" element={<Blogs />} />
             <Route path="/admin/subscribed-users" element={<SubscribedUsersPage />} />
+            <Route path="/admin/testimonials" element={<Testimonials />} />
+            <Route path="/admin/team-members" element={<TeamMembers />} />
+            <Route path="/admin/stats-and-clients" element={<StatsAndClientAdmin />} />
+
+
+
 
 
 
