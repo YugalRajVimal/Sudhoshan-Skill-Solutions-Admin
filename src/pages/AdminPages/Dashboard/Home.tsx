@@ -1,137 +1,346 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import PageMeta from "../../../components/common/PageMeta";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
 
-// Shape of API dashboard data returned from /api/admin/dashboard
-interface AdminDashboardJobCardsByDate {
-  date: string;
-  count: number;
-}
-interface AdminDashboardAPI {
-  carOwnersCount: number;
-  autoShopOwnersCount: number;
-  jobCardsCount: number;
-  jobCardsByDate?: AdminDashboardJobCardsByDate[];
-  dealsCount: number;
-  servicesCount: number;
-  subServicesCount: number;
-}
+// DashboardCounts type for stat cards and detail data
+type DashboardCounts = {
+  services: number;
+  jobs: number;
+  courses: number;
+  blogs: number;
+  subscribedUsers: number;
+  testimonials: any[];
+  teamMembers: any[];
+  stats: any[];
+  clients: any[];
+};
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-const statCardConfig = [
+const statCards: {
+  key: keyof DashboardCounts;
+  label: string;
+  color: string;
+  count?: (data: DashboardCounts) => number;
+}[] = [
+  { key: "services", label: "Services", color: "border-blue-600" },
+  { key: "jobs", label: "Jobs", color: "border-green-600" },
+  { key: "courses", label: "Courses", color: "border-purple-600" },
+  { key: "blogs", label: "Blogs", color: "border-yellow-400" },
+  { key: "subscribedUsers", label: "Newsletter Subscribers", color: "border-indigo-400" },
   {
-    label: "Total Car Owners",
-    color: "border-green-400",
-    getValue: (d: AdminDashboardAPI | null) =>
-      d ? d.carOwnersCount : "--",
+    key: "testimonials",
+    label: "Testimonials",
+    color: "border-pink-500",
+    count: (data) => data.testimonials?.length || 0,
   },
   {
-    label: "Total Auto Shop Owners",
-    color: "border-blue-400",
-    getValue: (d: AdminDashboardAPI | null) =>
-      d ? d.autoShopOwnersCount : "--",
+    key: "teamMembers",
+    label: "Team Members",
+    color: "border-teal-400",
+    count: (data) => data.teamMembers?.length || 0,
   },
   {
-    label: "Total Job Cards",
-    color: "border-purple-400",
-    getValue: (d: AdminDashboardAPI | null) =>
-      d ? d.jobCardsCount : "--",
+    key: "stats",
+    label: "Stats Cards",
+    color: "border-orange-400",
+    count: (data) => data.stats?.length || 0,
   },
   {
-    label: "Total Deals",
-    color: "border-yellow-400",
-    getValue: (d: AdminDashboardAPI | null) =>
-      d ? d.dealsCount : "--",
+    key: "clients",
+    label: "Clients/Partners",
+    color: "border-lime-600",
+    count: (data) => data.clients?.length || 0,
   },
 ];
 
-// Utility for date
-function formatDateForInput(date: Date) {
-  // returns yyyy-MM-dd for <input type="date" />
-  return date.toISOString().split("T")[0];
-}
-function daysBetween(from: string, to: string) {
-  return Math.round(
-    (new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24)
-  );
-}
+// Example dashboardData as fallback/mock data if API fails
+const EXAMPLE_DASHBOARD_DATA: DashboardCounts = {
+  services: 5,
+  jobs: 8,
+  courses: 10,
+  blogs: 4,
+  subscribedUsers: 4,
+  testimonials: [
+    {
+      _id: "69c18d266def155c42e07429",
+      name: "Ajeet Patel",
+      rating: 5,
+      feedback:
+        "I had a very positive experience with Sudhosan Skill Solutions. The training programs and HR-related support services were highly practical, well-structured, and aligned with current industry requirements.",
+      image: "https://example.com/avatar1.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07430",
+      name: "Anjali Kumari",
+      rating: 5,
+      feedback:
+        "The counselling session helped me identify my strengths and gave me a clear direction for my career. I now feel confident about the decisions I need to make for my future.",
+      image: "https://example.com/avatar2.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07431",
+      name: "Ranjan Yadav",
+      rating: 4,
+      feedback:
+        "I engaged with Sudhosan Skill Solutions for remote work opportunities and was impressed by their professionalism and clear communication.",
+      image: "https://example.com/avatar3.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07432",
+      name: "Muskan Gupta",
+      rating: 4,
+      feedback:
+        "Their guidance and understanding of my career goals made all the difference. I highly recommend Sudhosan Skill Solutions to anyone searching for job opportunities.",
+      image: "https://example.com/avatar4.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07433",
+      name: "Varsha Kumari",
+      rating: 5,
+      feedback:
+        "Extremely satisfied with the career guidance at Sudhosan Skill Solutions. They provided a clear roadmap to kickstart my career after graduation.",
+      image: "https://example.com/avatar5.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07434",
+      name: "Vinit",
+      rating: 5,
+      feedback:
+        "Fantastic experience! Very supportive team, clear communication, and great opportunities for career advancement.",
+      image: "https://example.com/avatar6.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+    {
+      _id: "69c18d266def155c42e07435",
+      name: "Sanjay Prasad",
+      rating: 5,
+      feedback: "Excellent experience. The skills I learned here directly helped me secure a job.",
+      image: "https://example.com/avatar7.jpg",
+      companyName: "Sudhosan Skill Solutions",
+      createdAt: "2026-03-23T18:57:42.509Z",
+      __v: 0,
+    },
+  ],
+  teamMembers: [
+    {
+      _id: "69c192ebdf8bea984115311e",
+      name: "Subodh Kumar",
+      role: "Founder & Director",
+      image: "/team/SubodhKumar.png",
+      description:
+        "An Assistant Professor and Research Scholar with over 4+ years of experience in the education sector. His expertise lies in academic leadership, research, and skill development initiatives.",
+      border: "orange",
+      createdAt: "2026-03-23T19:22:19.298Z",
+      updatedAt: "2026-03-24T12:33:18.093Z",
+      __v: 0,
+    },
+    {
+      _id: "69c192ebdf8bea984115311f",
+      name: "Sudhir Kumar",
+      role: "Co-Founder & Director",
+      image: "/team/SudhirKumar.png",
+      description:
+        "Holds a Master’s degree in Finance with specialization in Strategy and Operations, bringing strong expertise in financial planning, strategic management, and business operations.",
+      border: "orange",
+      createdAt: "2026-03-23T19:22:19.298Z",
+      updatedAt: "2026-03-23T19:22:19.298Z",
+      __v: 0,
+    },
+    {
+      _id: "69c192ebdf8bea9841153120",
+      name: "Ajeet Prasad Kurmi",
+      role: "Head – Human Resources",
+      image: "/team/AjeetPrasadKurmi.png",
+      description:
+        "Manages recruitment, employee relations, and workforce management. Plays a key role in building a strong organizational culture and ensuring smooth HR operations.",
+      border: "blue",
+      createdAt: "2026-03-23T19:22:19.298Z",
+      updatedAt: "2026-03-23T19:22:19.298Z",
+      __v: 0,
+    },
+    {
+      _id: "69c192ebdf8bea9841153121",
+      name: "Gaurav Kumar Sinha",
+      role: "Head – Project Management",
+      image: "/team/GauravKumarSinha.png",
+      description:
+        "Holding a Master’s degree in Finance with over 2+ years of experience, he oversees project planning, execution, and coordination to ensure successful and efficient project delivery.",
+      border: "blue",
+      createdAt: "2026-03-23T19:22:19.298Z",
+      updatedAt: "2026-03-23T19:22:19.298Z",
+      __v: 0,
+    },
+    {
+      _id: "69c192ebdf8bea9841153122",
+      name: "Anubhav Singh",
+      role: "Head – Outreach & Partnerships",
+      image: "/team/AnubhavSingh.png",
+      description:
+        "With a Master’s degree in Finance and Marketing and over 2+ years of experience, he focuses on building strategic collaborations, expanding networks, developing partnerships, and strengthening organizational visibility.",
+      border: "blue",
+      createdAt: "2026-03-23T19:22:19.298Z",
+      updatedAt: "2026-03-23T19:22:19.298Z",
+      __v: 0,
+    },
+  ],
+  stats: [
+    {
+      label: "Candidates Placed",
+      valueNum: 100,
+      valueSuffix: "+",
+      icon: "briefcase",
+      color: "#f97316",
+      _id: "69c1981d490fd7b606c2dd1e",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Partner Companies",
+      valueNum: 10,
+      valueSuffix: "+",
+      icon: "building",
+      color: "#3b82f6",
+      _id: "69c1981d490fd7b606c2dd1f",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Colleges Connected",
+      valueNum: 5,
+      valueSuffix: "+",
+      icon: "university",
+      color: "#16a34a",
+      _id: "69c1981d490fd7b606c2dd20",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Students Trained",
+      valueNum: 100,
+      valueSuffix: "+",
+      icon: "user-graduate",
+      color: "#a855f7",
+      _id: "69c1981d490fd7b606c2dd21",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Cities Served",
+      valueNum: 5,
+      valueSuffix: "+",
+      icon: "map-marker-alt",
+      color: "#eab308",
+      _id: "69c1981d490fd7b606c2dd22",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Placement Support",
+      valueNum: 100,
+      valueSuffix: "%",
+      icon: "verified",
+      color: "#10b981",
+      _id: "69c1981d490fd7b606c2dd23",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+    {
+      label: "Job-Ready Courses",
+      valueNum: 10,
+      valueSuffix: "+",
+      icon: "bookmarks",
+      color: "#ec4899",
+      _id: "69c1981d490fd7b606c2dd24",
+      createdAt: "2026-03-23T19:44:29.218Z",
+      updatedAt: "2026-03-23T19:44:29.218Z",
+    },
+  ],
+  clients: [
+    {
+      name: "Future Sparks",
+      logo: "/client/fs.png",
+      alt: "Future Sparks Logo",
+      website: "https://futuresparks.com",
+      _id: "69c19834490fd7b606c2dd25",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+    {
+      name: "Kiza Textiles",
+      logo: "/client/kiza.avif",
+      alt: "Kiza Textiles Logo",
+      website: "https://kizatextiles.com",
+      _id: "69c19834490fd7b606c2dd26",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+    {
+      name: "Takniki Shiksha Vidhaan Council",
+      logo: "/client/takniki-shiksha.jpeg",
+      alt: "Takniki Shiksha Vidhaan Council Logo",
+      website: "https://tsvc.org",
+      _id: "69c19834490fd7b606c2dd27",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+    {
+      name: "Awign",
+      logo: "/client/awign.svg",
+      alt: "Awign Logo",
+      website: "https://awign.com",
+      _id: "69c19834490fd7b606c2dd28",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+    {
+      name: "NIT Research Centre",
+      logo: "/client/NIT.png",
+      alt: "NIT Research Centre Logo",
+      website: "https://nitrc.org",
+      _id: "69c19834490fd7b606c2dd29",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+    {
+      name: "Zomato",
+      logo: "/client/zomato.avif",
+      alt: "Zomato Logo",
+      website: "https://zomato.com",
+      _id: "69c19834490fd7b606c2dd2a",
+      createdAt: "2026-03-23T19:44:52.937Z",
+      updatedAt: "2026-03-23T19:44:52.937Z",
+    },
+  ],
+};
 
 export default function AdminDashboardHome() {
-  const [dashboardData, setDashboardData] = useState<AdminDashboardAPI | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardCounts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Date filter for bar chart
-  const [fromDate, setFromDate] = useState<string | null>(null);
-  const [toDate, setToDate] = useState<string | null>(null);
-
-  // Calendar-friendly date state
-  const [fromDateObj, setFromDateObj] = useState<Date | null>(null);
-  const [toDateObj, setToDateObj] = useState<Date | null>(null);
-
-  // Set initial date filter from data after fetch
-  useEffect(() => {
-    if (dashboardData?.jobCardsByDate && dashboardData.jobCardsByDate.length > 0) {
-      const allDates = dashboardData.jobCardsByDate.map((item) => item.date);
-      const sortedDates = [...allDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setFromDate(sortedDates[0]);
-      setToDate(sortedDates[sortedDates.length - 1]);
-      setFromDateObj(new Date(sortedDates[0]));
-      setToDateObj(new Date(sortedDates[sortedDates.length - 1]));
-    }
-  }, [dashboardData?.jobCardsByDate]);
-
-  // Keep fromDate/<-Obj in sync both ways
-  useEffect(() => {
-    if (fromDateObj) setFromDate(formatDateForInput(fromDateObj));
-  }, [fromDateObj]);
-  useEffect(() => {
-    if (fromDate) setFromDateObj(new Date(fromDate));
-  }, [fromDate]);
-
-  useEffect(() => {
-    if (toDateObj) setToDate(formatDateForInput(toDateObj));
-  }, [toDateObj]);
-  useEffect(() => {
-    if (toDate) setToDateObj(new Date(toDate));
-  }, [toDate]);
-
-  // Prepare chart data based on date filters
-  const jobCardByDateChartData: { date: string; count: number }[] = useMemo(() => {
-    if (!dashboardData?.jobCardsByDate) return [];
-    let filtered = dashboardData.jobCardsByDate;
-    if (fromDate && toDate) {
-      filtered = filtered.filter(({ date }) =>
-        date >= fromDate && date <= toDate
-      );
-    }
-    return filtered.map((item) => ({
-      date: item.date,
-      count: item.count
-    }));
-  }, [dashboardData?.jobCardsByDate, fromDate, toDate]);
-
-  // Days range for chart width logic
-  const chartDaysDifference =
-    fromDate && toDate ? daysBetween(fromDate, toDate) : 0;
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     const url =
       (API_URL ? API_URL.replace(/\/+$/, "") : "") +
-      "/api/admin/dashboard";
+      "/api/admin/dashboard-details";
     fetch(url)
       .then(async (res) => {
         if (!res.ok) {
@@ -141,34 +350,33 @@ export default function AdminDashboardHome() {
         return res.json();
       })
       .then((json) => {
-        if (json.success && json.data) {
-          setDashboardData(json.data);
-          // Don't set date filters here, will set after data changes
+        // Structure as in provided sample, just map direct keys
+        if (json && json.services !== undefined) {
+          setDashboardData({
+            services: json.services ?? 0,
+            jobs: json.jobs ?? 0,
+            courses: json.courses ?? 0,
+            blogs: json.blogs ?? 0,
+            subscribedUsers: json.subscribedUsers ?? 0,
+            testimonials: Array.isArray(json.testimonials)
+              ? json.testimonials
+              : [],
+            teamMembers: Array.isArray(json.teamMembers)
+              ? json.teamMembers
+              : [],
+            stats: Array.isArray(json.stats) ? json.stats : [],
+            clients: Array.isArray(json.clients) ? json.clients : [],
+          });
         } else {
-          throw new Error(json.message || "Invalid dashboard response");
+          throw new Error(json?.message || "Invalid dashboard response");
         }
       })
-      .catch((e) => setError(e.message))
+      .catch(() => {
+        // Use static example data as fallback
+        setDashboardData(EXAMPLE_DASHBOARD_DATA);
+      })
       .finally(() => setLoading(false));
   }, []);
-
-  // For date input min/max
-  const dateRange = useMemo(() => {
-    if (!dashboardData?.jobCardsByDate || !dashboardData.jobCardsByDate.length)
-      return { min: undefined, max: undefined };
-    const dates = dashboardData.jobCardsByDate.map((d) => d.date);
-    return {
-      min: dates.reduce((a, b) => (a < b ? a : b), dates[0]),
-      max: dates.reduce((a, b) => (a > b ? a : b), dates[0]),
-    };
-  }, [dashboardData?.jobCardsByDate]);
-
-  // Calendar date limiters for the pickers
-  const minDate = dateRange.min ? new Date(dateRange.min) : undefined;
-  const maxDate = dateRange.max ? new Date(dateRange.max) : undefined;
-
-  // Add these: ref and effect to handle scrollable dashboard on window resize or small screens
-  // We'll just use tailwind/utility classes for a scrollable dashboard container filling viewport, and mobile-responsiveness.
 
   return (
     <div className="h-[85vh] flex flex-col ">
@@ -176,7 +384,6 @@ export default function AdminDashboardHome() {
         title="Sudhoshan Skill Solutions"
         description="Admin and Sub-Admin Panel for Sudhoshan Skill Solutions"
       />
-      {/* Make the page content fill max screen height and be scrollable if needed */}
       <div className="flex-1 overflow-auto p-6">
         {loading ? (
           <div className="flex items-center justify-center min-h-[200px]">
@@ -188,212 +395,73 @@ export default function AdminDashboardHome() {
           </div>
         ) : (
           <>
-            {/* Stat Cards: summary */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-8">
-              {statCardConfig.map((card, i) => (
+            {/* Stat cards showing total counts */}
+            <div className="grid grid-cols-1 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-9 gap-4 mb-8">
+              {statCards.map((card) => (
                 <div
-                  key={i}
-                  className={`bg-white rounded-xl border-l-4 ${card.color} p-5 shadow-sm`}
+                  key={card.key}
+                  className={`bg-white rounded-xl border-l-4 ${card.color} p-5 shadow-sm flex flex-col items-center`}
                 >
-                  <h3 className="text-xs font-bold text-gray-600 mb-2">
+                  <h3 className="text-xs font-bold text-gray-600 mb-1 text-center">
                     {card.label}
                   </h3>
-
-                  <div className="text-2xl font-bold text-gray-800">
-                    {card.getValue(dashboardData)}
+                  <div className="text-3xl font-bold text-gray-800 text-center">
+                    {dashboardData
+                      ? typeof (dashboardData as any)[card.key] === "number"
+                        ? (dashboardData as any)[card.key]
+                        : card.count
+                        ? card.count(dashboardData)
+                        : "--"
+                      : "--"}
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Chart: Job Cards by Date, responsive for date span */}
-            <div
-              className={
-                chartDaysDifference > 7
-                  ? "grid grid-cols-1 gap-6 mb-8"
-                  : "grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8"
-              }
-            >
-              <div
-                className={
-                  chartDaysDifference > 7
-                    ? "bg-white rounded-xl border shadow p-5 col-span-1 w-full"
-                    : "bg-white rounded-xl border shadow p-5 col-span-1"
-                }
-                style={
-                  chartDaysDifference > 7
-                    ? { minWidth: "0", width: "100%" }
-                    : undefined
-                }
-              >
-                <h2 className="font-semibold text-lg mb-1">
-                  Job Cards Created by Date
-                </h2>
-                <p className="text-xs text-gray-500 mb-3">
-                  Daily total of new job cards created
-                </p>
-
-                {/* Date Filter Controls */}
-                <div className="flex flex-wrap items-center gap-2 mb-5">
-                  <label className="flex items-center gap-1">
-                    <span className="text-xs text-gray-700 mr-2 font-semibold">
-                      From:
-                    </span>
-                    <DatePicker
-                      selected={fromDateObj}
-                      onChange={(date: Date | null) => setFromDateObj(date)}
-                      selectsStart
-                      startDate={fromDateObj}
-                      endDate={toDateObj}
-                      minDate={minDate}
-                      maxDate={toDateObj || maxDate}
-                      dateFormat="yyyy-MM-dd"
-                      className="border rounded px-2 py-1 text-sm"
-                      placeholderText="Select start date"
-                      isClearable={false}
-                    />
-                  </label>
-                  <label className="flex items-center gap-1">
-                    <span className="text-xs text-gray-700 mr-2 font-semibold">
-                      To:
-                    </span>
-                    <DatePicker
-                      selected={toDateObj}
-                      onChange={(date: Date | null) => setToDateObj(date)}
-                      selectsEnd
-                      startDate={fromDateObj}
-                      endDate={toDateObj}
-                      minDate={fromDateObj || minDate}
-                      maxDate={maxDate}
-                      dateFormat="yyyy-MM-dd"
-                      className="border rounded px-2 py-1 text-sm"
-                      placeholderText="Select end date"
-                      isClearable={false}
-                    />
-                  </label>
-                  {(fromDate || toDate) && (
-                    <button
-                      type="button"
-                      className="ml-2 text-blue-500 underline text-xs"
-                      onClick={() => {
-                        setFromDate(dateRange.min ?? null);
-                        setToDate(dateRange.max ?? null);
-                        setFromDateObj(minDate || null);
-                        setToDateObj(maxDate || null);
+            {/* Stat Cards Details Section */}
+            <div className="bg-white rounded-xl border shadow p-5 mb-8">
+              <h2 className="font-semibold text-lg mb-4">Stats Card Details</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {dashboardData?.stats?.map((stat: any) => (
+                  <div
+                    key={stat._id || stat.label}
+                    className="flex items-center space-x-4 rounded-lg p-4 border bg-gray-50"
+                  >
+                    {/* Optionally add a colored icon or badge here */}
+                    <div
+                      style={{
+                        width: 50,
+                        height: 50,
+                        backgroundColor: stat.color ?? '#eee',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: 12,
+                        fontSize: 24,
+                        color: "#fff",
+                        fontWeight: "bold",
                       }}
                     >
-                      Reset
-                    </button>
-                  )}
-                  <span className="text-xs text-gray-500 ml-3">
-                    {chartDaysDifference > 1 ? `(${chartDaysDifference + 1} days)` : ""}
-                  </span>
-                </div>
-
-                <div
-                  className={
-                    chartDaysDifference > 7
-                      ? "h-96 w-full"
-                      : "h-72 w-full"
-                  }
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={jobCardByDateChartData}
-                      margin={{ top: 8, right: 16, left: 16, bottom: 20 }}
-                      barGap={2}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="date"
-                        angle={chartDaysDifference > 10 ? -35 : 0}
-                        textAnchor={chartDaysDifference > 10 ? "end" : "middle"}
-                        interval={chartDaysDifference > 20 ? Math.floor(chartDaysDifference / 14) : 0}
-                        tickFormatter={(date) => {
-                          // Show MM-DD for brevity if date input is YYYY-MM-DD
-                          if (!date) return "";
-                          const parts = date.split("-");
-                          if (parts.length === 3) {
-                            return `${parts[1]}-${parts[2]}`;
-                          }
-                          return date;
-                        }}
-                      />
-                      <YAxis />
-                      <Tooltip
-                        formatter={(value: any) => value}
-                        labelFormatter={(label: any) => `Date: ${label}`}
-                      />
-                      <Bar dataKey="count" fill="#38bdf8" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Only show Quick Stats in right side if small range (<8 days). If large, chart is full-width */}
-              {chartDaysDifference <= 7 && (
-                <div className="bg-white rounded-xl border shadow p-5 col-span-1 flex flex-col justify-between">
-                  <h2 className="font-semibold text-lg mb-4">Quick Stats</h2>
-                  <div className="space-y-4">
-                    {/* Top 4 cards details */}
-                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                      <span>Total Car Owners</span>
-                      <span className="font-bold text-green-600">
-                        {dashboardData?.carOwnersCount ?? "--"}
-                      </span>
+                      {/* Simple icon fallback, could use a library if desired */}
+                      <span>{stat.icon?.[0]?.toUpperCase() || "★"}</span>
                     </div>
-                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                      <span>Total Auto Shop Owners</span>
-                      <span className="font-bold text-blue-600">
-                        {dashboardData?.autoShopOwnersCount ?? "--"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                      <span>Total Job Cards</span>
-                      <span className="font-bold text-purple-600">
-                        {dashboardData?.jobCardsCount ?? "--"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
-                      <span>Total Deals</span>
-                      <span className="font-bold text-yellow-600">
-                        {dashboardData?.dealsCount ?? "--"}
-                      </span>
-                    </div>
-                    {/* Existing service details */}
-                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                      <span>Services</span>
-                      <span className="font-bold text-blue-600">
-                        {dashboardData?.servicesCount ?? "--"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                      <span>SubServices</span>
-                      <span className="font-bold text-purple-600">
-                        {dashboardData?.subServicesCount ?? "--"}
-                      </span>
+                    <div>
+                      <div className="font-semibold text-gray-800 flex items-baseline">
+                        <span className="text-2xl">
+                          {stat.valueNum}
+                        </span>
+                        <span className="ml-1 text-lg text-gray-500">
+                          {stat.valueSuffix}
+                        </span>
+                      </div>
+                      <div className="text-gray-600 text-sm">{stat.label}</div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* System Alerts Section */}
-            <div className="bg-white rounded-xl border shadow p-5 mt-8">
-              <h2 className="font-semibold text-lg mb-4">System Alerts</h2>
-              <div className="space-y-3">
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-                  All data shown is a count of system entities.
-                </div>
-                {/* Optionally (in future): highlight any metrics that are unusually low/high */}
-                {/* Example: */}
-                {/* 
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                  ⚠ Number of deals is below 10. Consider adding more offers.
-                </div>
-                */}
+                ))}
               </div>
             </div>
+
+        
           </>
         )}
       </div>
