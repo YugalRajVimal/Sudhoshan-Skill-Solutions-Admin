@@ -11,6 +11,8 @@ export interface Job {
   salaryRange?: string;
   type?: string;
   role?: string;
+  categories?: string[];
+  minimumQualification?: string; // <-- ADDED
 }
 
 type JobForm = Omit<Job, "_id">;
@@ -29,7 +31,10 @@ const Jobs: React.FC = () => {
     salaryRange: "",
     type: "",
     role: "",
+    categories: [],
+    minimumQualification: "", // <-- ADDED
   });
+  const [categoriesInput, setCategoriesInput] = useState<string>("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string>("");
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -77,7 +82,10 @@ const Jobs: React.FC = () => {
       salaryRange: "",
       type: "",
       role: "",
+      categories: [],
+      minimumQualification: "", // <-- ADDED
     });
+    setCategoriesInput("");
     setShowModal(true);
     setTimeout(() => firstInputRef.current?.focus(), 150);
   };
@@ -93,7 +101,12 @@ const Jobs: React.FC = () => {
       salaryRange: job.salaryRange || "",
       type: job.type || "",
       role: job.role || "",
+      categories: Array.isArray(job.categories) ? job.categories : [],
+      minimumQualification: job.minimumQualification ?? "", // <-- ADDED
     });
+    setCategoriesInput(
+      Array.isArray(job.categories) ? job.categories.join(",") : ""
+    );
     setShowModal(true);
     setTimeout(() => firstInputRef.current?.focus(), 150);
   };
@@ -106,10 +119,38 @@ const Jobs: React.FC = () => {
     }));
   };
 
+  // Handle multiple categories with comma-separated input, but block entering space within a category (spaces around commas are allowed)
+  const handleCategoriesInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Remove spaces only before and after the category names, but allow " , " between
+    let value = e.target.value.replace(/,{2,}/g, ","); // Replace multiple commas with a single comma
+    setCategoriesInput(value);
+
+    const arr = value
+      .split(",")
+      .map(v => v.trim())
+      .filter(Boolean)
+      .filter(cat => !cat.includes(" ")); // Block categories containing spaces
+
+    setFormValues(prev => ({
+      ...prev,
+      categories: arr,
+    }));
+  };
+
   // Compose payload for create/edit
   const getSanitizedPayload = (): Partial<JobForm> => {
     // Only include fields if they have value
-    const { title, company, location, salary, salaryRange, type, role } = formValues;
+    const {
+      title,
+      company,
+      location,
+      salary,
+      salaryRange,
+      type,
+      role,
+      categories,
+      minimumQualification, // <-- ADDED
+    } = formValues;
     const payload: Partial<JobForm> = {
       title: title.trim(),
       company: company.trim(),
@@ -127,6 +168,12 @@ const Jobs: React.FC = () => {
     if (role && role.trim() !== "") {
       payload.role = role.trim();
     }
+    if (Array.isArray(categories) && categories.length > 0) {
+      payload.categories = categories;
+    }
+    if (minimumQualification && minimumQualification.trim() !== "") {
+      payload.minimumQualification = minimumQualification.trim(); // <-- ADDED
+    }
     return payload;
   };
 
@@ -136,6 +183,15 @@ const Jobs: React.FC = () => {
     clearAlerts();
     const baseURL = import.meta.env.VITE_API_URL;
     const payload = getSanitizedPayload();
+
+    // Block submit if any category contains space or is empty
+    if (
+      (formValues.categories &&
+        formValues.categories.some(cat => cat.trim() === "" || cat.includes(" ")))
+    ) {
+      setError("Categories cannot contain spaces or be empty.");
+      return;
+    }
 
     try {
       if (editingJob) {
@@ -227,6 +283,8 @@ const Jobs: React.FC = () => {
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Salary Range</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Type</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Role</th>
+                  <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Categories</th>
+                  <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Min. Qualification</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Actions</th>
                 </tr>
               </thead>
@@ -249,6 +307,24 @@ const Jobs: React.FC = () => {
                     <td className="px-3 py-3 text-gray-700">{job.salaryRange || <span className="italic text-gray-400">—</span>}</td>
                     <td className="px-3 py-3 text-gray-700">{job.type || <span className="italic text-gray-400">—</span>}</td>
                     <td className="px-3 py-3 text-gray-700">{job.role || <span className="italic text-gray-400">—</span>}</td>
+                    <td className="px-3 py-3 text-gray-700">
+                      {Array.isArray(job.categories) && job.categories.length > 0
+                        ? job.categories.map((cat, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-block mr-1 mb-0.5 bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium"
+                            >
+                              {cat}
+                            </span>
+                          ))
+                        : <span className="italic text-gray-400">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-gray-700">
+                      {job.minimumQualification
+                        ? job.minimumQualification
+                        : <span className="italic text-gray-400">—</span>
+                      }
+                    </td>
                     <td className="px-3 py-3 whitespace-nowrap flex gap-2 items-center">
                       <button
                         onClick={() => openEditModal(job)}
@@ -285,8 +361,6 @@ const Jobs: React.FC = () => {
           <div
             className="rounded-lg shadow-2xl bg-white p-6 sm:p-9 max-w-2xl w-[94vw] animate-fadein max-h-[97vh] overflow-y-auto"
             style={{
-              // For landscape mobile: always limit modal width to viewport-allowing horizontal scrolling if needed
-              // For small screens: add overscroll behavior to keep user in modal
               overscrollBehavior: "contain"
             }}
             onClick={e => e.stopPropagation()}
@@ -398,6 +472,52 @@ const Jobs: React.FC = () => {
                   className="w-full px-3 py-2 border rounded shadow-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none transition placeholder:text-gray-400"
                   placeholder="eg: Marketing, Development"
                   maxLength={50}
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block mb-1 font-semibold text-gray-700">
+                  Categories
+                  <span className="text-xs text-gray-400 ml-1">(comma-separated, no spaces allowed in each category, multiple categories allowed)</span>
+                </label>
+                <input
+                  type="text"
+                  value={categoriesInput}
+                  onChange={handleCategoriesInputChange}
+                  className="w-full px-3 py-2 border rounded shadow-sm focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none transition placeholder:text-gray-400"
+                  placeholder="eg: marketing,seo,leadgen"
+                  maxLength={100}
+                  inputMode="text"
+                  pattern="^([^ ,]+,)*([^ ,]+)?$"
+                  title="Categories separated by commas. No spaces allowed in each category."
+                />
+                {/* Show parsed categories if present */}
+                {formValues.categories && formValues.categories.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {formValues.categories.map((cat, idx) => (
+                      <span
+                        className="inline-block bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium"
+                        key={idx}
+                      >
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="text-xs text-gray-500 mt-1">Separate by commas. No spaces allowed in each category.</div>
+              </div>
+              {/* Minimum Qualification field ADDED */}
+              <div className="mb-4">
+                <label className="block mb-1 font-semibold text-gray-700">
+                  Minimum Qualification
+                  <span className="text-xs text-gray-400 ml-1">(optional, shown on job listing)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formValues.minimumQualification ?? ""}
+                  onChange={e => updateFormField("minimumQualification", e.target.value)}
+                  className="w-full px-3 py-2 border rounded shadow-sm focus:border-green-400 focus:ring-1 focus:ring-green-200 outline-none transition placeholder:text-gray-400"
+                  placeholder="eg: B.S. in Marketing, 2+ years experience"
+                  maxLength={256}
                 />
               </div>
               <div className="mt-7 flex gap-4 items-center justify-end">
