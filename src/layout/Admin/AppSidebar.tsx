@@ -66,6 +66,11 @@ const navItems: NavItem[] = [
     name: "Stats & Clients",
     path: "/admin/stats-and-clients",
   },
+  {
+    icon: <GridIcon />,
+    name: "Multi Mailer",
+    path: "/admin/multi-mailer",
+  },
 
   // {
   //   icon: <FileIcon />,

@@ -45,6 +45,7 @@ import SubscribedUsersPage from "./pages/AdminPages/SubscribedUsers";
 import Testimonials from "./pages/AdminPages/Testimonials/Testimonials";
 import TeamMembers from "./pages/AdminPages/TeamMembers/TeamMembers";
 import StatsAndClientAdmin from "./pages/AdminPages/StatsAndClients/StatsAndClient";
+import MultiMailer from "./pages/AdminPages/MultiMailer/MultiMailer";
 
 
 export default function App() {
@@ -101,6 +102,7 @@ export default function App() {
             <Route path="/admin/testimonials" element={<Testimonials />} />
             <Route path="/admin/team-members" element={<TeamMembers />} />
             <Route path="/admin/stats-and-clients" element={<StatsAndClientAdmin />} />
+            <Route path="/admin/multi-mailer" element={<MultiMailer />} />
 
 
 
