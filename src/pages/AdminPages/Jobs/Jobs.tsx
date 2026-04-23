@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
-// --- Job types reflecting backend schema ---
+// --- Job types reflecting backend schema (with order indexing) ---
 export interface Job {
   _id: string;
   title: string;
@@ -12,10 +12,11 @@ export interface Job {
   type?: string;
   role?: string;
   categories?: string[];
-  minimumQualification?: string; // <-- ADDED
+  minimumQualification?: string;
+  order?: number; // order field for manual sorting/indexed
 }
 
-type JobForm = Omit<Job, "_id">;
+type JobForm = Omit<Job, "_id" | "order">;
 
 const Jobs: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -32,12 +33,21 @@ const Jobs: React.FC = () => {
     type: "",
     role: "",
     categories: [],
-    minimumQualification: "", // <-- ADDED
+    minimumQualification: "",
   });
   const [categoriesInput, setCategoriesInput] = useState<string>("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string>("");
   const firstInputRef = useRef<HTMLInputElement>(null);
+
+  // For reorder modal
+  const [showReorderModal, setShowReorderModal] = useState(false);
+  const [reorderJobs, setReorderJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [targetIndex, setTargetIndex] = useState<number | null>(null);
+  const [reorderLoading, setReorderLoading] = useState(false);
+  const [reorderSuccessMsg, setReorderSuccessMsg] = useState<string>("");
+  const [reorderError, setReorderError] = useState<string>("");
 
   useEffect(() => {
     fetchJobs();
@@ -49,23 +59,38 @@ const Jobs: React.FC = () => {
     setSuccessMsg("");
   };
 
-  // --- Fetch jobs according to new API spec (GET /jobs, id via query param) ---
+  const clearReorderAlerts = () => {
+    setReorderError("");
+    setReorderSuccessMsg("");
+  };
+
+  // --- Fetch jobs using the new controller with order field indexing ---
+  // Always requests jobs with proper order via backend sorted/ordered field
   const fetchJobs = async () => {
     setLoading(true);
     clearAlerts();
     try {
       const baseURL = import.meta.env.VITE_API_URL;
+      // Use backend's indexed/sorted list (order, createdAt, _id)
       const response = await axios.get(`${baseURL}/api/admin/jobs`);
-      // Response is an array (all) or a single object (single job)
-      if (Array.isArray(response.data)) {
-        setJobs(response.data);
-      } else if (response.data._id) {
-        setJobs([response.data]);
-      } else {
-        setJobs([]);
-      }
+      let data = response.data;
+      // The backend will already return sorted by order, but double check in frontend
+      let jobsArr = Array.isArray(data) ? data : (data?._id ? [data] : []);
+      jobsArr.sort((a: Job, b: Job) => {
+        // Orders are indexed as integers, fallback to default stable order if not present
+        if (typeof a.order === "number" && typeof b.order === "number") {
+          return a.order - b.order;
+        } else {
+          return 0;
+        }
+      });
+      setJobs(jobsArr);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.response?.data?.message || "Error fetching jobs");
+      setError(
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Error fetching jobs"
+      );
     }
     setLoading(false);
   };
@@ -83,7 +108,7 @@ const Jobs: React.FC = () => {
       type: "",
       role: "",
       categories: [],
-      minimumQualification: "", // <-- ADDED
+      minimumQualification: "",
     });
     setCategoriesInput("");
     setShowModal(true);
@@ -102,13 +127,60 @@ const Jobs: React.FC = () => {
       type: job.type || "",
       role: job.role || "",
       categories: Array.isArray(job.categories) ? job.categories : [],
-      minimumQualification: job.minimumQualification ?? "", // <-- ADDED
+      minimumQualification: job.minimumQualification ?? "",
     });
-    setCategoriesInput(
-      Array.isArray(job.categories) ? job.categories.join(",") : ""
-    );
+    setCategoriesInput(Array.isArray(job.categories) ? job.categories.join(",") : "");
     setShowModal(true);
     setTimeout(() => firstInputRef.current?.focus(), 150);
+  };
+
+  // --- Reorder Modal Controls ---
+  const openReorderModal = () => {
+    // Start with currently sorted list
+    setReorderJobs([...jobs]);
+    setSelectedJobId(null);
+    setTargetIndex(null);
+    setShowReorderModal(true);
+    clearReorderAlerts();
+  };
+
+  const closeReorderModal = () => {
+    setShowReorderModal(false);
+    setSelectedJobId(null);
+    setTargetIndex(null);
+    clearReorderAlerts();
+  };
+
+  // --- Move job to a new index using controller (order field in backend) ---
+  const handleReorder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearReorderAlerts();
+    if (!selectedJobId || targetIndex === null || isNaN(targetIndex)) {
+      setReorderError("Please select a job and a target position.");
+      return;
+    }
+    setReorderLoading(true);
+    try {
+      const baseURL = import.meta.env.VITE_API_URL;
+      // Endpoint for order swap (with order field for efficient indexing)
+      const res = await axios.post(`${baseURL}/api/admin/jobs/interchange`, {
+        jobId: selectedJobId,
+        targetIndex: targetIndex,
+      });
+      setReorderSuccessMsg(res.data.message || "Job reordered successfully.");
+      setSuccessMsg(res.data.message || "Job reordered successfully.");
+      setTimeout(() => {
+        closeReorderModal();
+        fetchJobs();
+      }, 800);
+    } catch (err: any) {
+      setReorderError(
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Error reordering jobs"
+      );
+    }
+    setReorderLoading(false);
   };
 
   // --- Field Updaters ---
@@ -119,18 +191,14 @@ const Jobs: React.FC = () => {
     }));
   };
 
-  // Handle multiple categories with comma-separated input, but block entering space within a category (spaces around commas are allowed)
+  // --- Category Handler: allow spaces in category names ---
   const handleCategoriesInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove spaces only before and after the category names, but allow " , " between
-    let value = e.target.value.replace(/,{2,}/g, ","); // Replace multiple commas with a single comma
+    let value = e.target.value.replace(/,{2,}/g, ",");
     setCategoriesInput(value);
-
     const arr = value
       .split(",")
       .map(v => v.trim())
-      .filter(Boolean)
-      .filter(cat => !cat.includes(" ")); // Block categories containing spaces
-
+      .filter(cat => cat.length > 0);
     setFormValues(prev => ({
       ...prev,
       categories: arr,
@@ -139,7 +207,6 @@ const Jobs: React.FC = () => {
 
   // Compose payload for create/edit
   const getSanitizedPayload = (): Partial<JobForm> => {
-    // Only include fields if they have value
     const {
       title,
       company,
@@ -149,7 +216,7 @@ const Jobs: React.FC = () => {
       type,
       role,
       categories,
-      minimumQualification, // <-- ADDED
+      minimumQualification,
     } = formValues;
     const payload: Partial<JobForm> = {
       title: title.trim(),
@@ -172,7 +239,7 @@ const Jobs: React.FC = () => {
       payload.categories = categories;
     }
     if (minimumQualification && minimumQualification.trim() !== "") {
-      payload.minimumQualification = minimumQualification.trim(); // <-- ADDED
+      payload.minimumQualification = minimumQualification.trim();
     }
     return payload;
   };
@@ -184,27 +251,26 @@ const Jobs: React.FC = () => {
     const baseURL = import.meta.env.VITE_API_URL;
     const payload = getSanitizedPayload();
 
-    // Block submit if any category contains space or is empty
     if (
-      (formValues.categories &&
-        formValues.categories.some(cat => cat.trim() === "" || cat.includes(" ")))
+      formValues.categories &&
+      formValues.categories.some(cat => cat.trim() === "")
     ) {
-      setError("Categories cannot contain spaces or be empty.");
+      setError("Categories cannot be empty.");
       return;
     }
 
     try {
       if (editingJob) {
-        // Update: PUT with id query param
         if (!editingJob._id) {
           setError("Missing job ID for update.");
           return;
         }
+        // PUT for update (via order-indexed backend controller)
         const url = `${baseURL}/api/admin/jobs?id=${editingJob._id}`;
         await axios.put(url, payload);
         setSuccessMsg("Job updated successfully.");
       } else {
-        // Create: POST
+        // POST for creation (order set in backend, new schema/controller)
         await axios.post(`${baseURL}/api/admin/jobs`, payload);
         setSuccessMsg("Job added successfully.");
       }
@@ -240,17 +306,28 @@ const Jobs: React.FC = () => {
     setDeletingId(null);
   };
 
-  // --- Modal UI for Add/Edit ---
+  // --- Modal UI for Add/Edit & Reorder ---
   return (
     <div className="h-[85vh] overflow-y-auto bg-gray-50 px-2 py-6 sm:px-8">
       <div className="mb-6 flex items-center justify-between flex-wrap gap-x-4 gap-y-2">
         <h2 className="text-2xl font-bold text-gray-700">All Jobs</h2>
-        <button
-          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-md shadow transition-colors duration-150"
-          onClick={openAddModal}
-        >
-          + Add New Job
-        </button>
+        <div className="flex gap-4">
+          <button
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-md shadow transition-colors duration-150"
+            onClick={openAddModal}
+          >
+            + Add New Job
+          </button>
+          <button
+            className="bg-indigo-500 hover:bg-indigo-600 text-white font-semibold px-4 py-2 rounded-md shadow transition-colors duration-150"
+            onClick={openReorderModal}
+            title="Reorder jobs by moving a job to a new order position"
+            type="button"
+            data-testid="reorder-btn"
+          >
+            Reorder
+          </button>
+        </div>
       </div>
       {error && (
         <div className="mb-4 text-sm rounded bg-red-100 text-red-800 px-3 py-2 border border-red-200 shadow">{error}</div>
@@ -276,6 +353,7 @@ const Jobs: React.FC = () => {
             <table className="w-full border rounded overflow-hidden bg-white shadow-sm">
               <thead className="bg-gradient-to-br from-gray-100 to-gray-50">
                 <tr>
+                  <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">#</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Title</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Company</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Location</th>
@@ -289,8 +367,14 @@ const Jobs: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {jobs.map(job => (
+                {jobs.map((job, idx) => (
                   <tr key={job._id} className="transition hover:bg-blue-50 group border-b last:border-b-0">
+                    <td className="px-3 py-3 text-gray-400 font-mono">
+                      {/* Use indexed order field for row number */}
+                      {typeof job.order === "number"
+                        ? job.order + 1
+                        : idx + 1}
+                    </td>
                     <td className="px-3 py-3 font-semibold text-gray-900">{job.title}</td>
                     <td className="px-3 py-3 text-gray-800">{job.company}</td>
                     <td className="px-3 py-3 text-gray-700">{job.location}</td>
@@ -309,9 +393,9 @@ const Jobs: React.FC = () => {
                     <td className="px-3 py-3 text-gray-700">{job.role || <span className="italic text-gray-400">—</span>}</td>
                     <td className="px-3 py-3 text-gray-700">
                       {Array.isArray(job.categories) && job.categories.length > 0
-                        ? job.categories.map((cat, idx) => (
+                        ? job.categories.map((cat, catIdx) => (
                             <span
-                              key={idx}
+                              key={catIdx}
                               className="inline-block mr-1 mb-0.5 bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium"
                             >
                               {cat}
@@ -352,7 +436,7 @@ const Jobs: React.FC = () => {
         </div>
       )}
 
-      {/* Animated Modal */}
+      {/* Animated Modal - Add/Edit */}
       {showModal && (
         <div
           className="fixed left-0 top-0 z-50 w-screen h-screen bg-black/35 flex items-center justify-center backdrop-blur-sm"
@@ -477,18 +561,18 @@ const Jobs: React.FC = () => {
               <div className="mb-4">
                 <label className="block mb-1 font-semibold text-gray-700">
                   Categories
-                  <span className="text-xs text-gray-400 ml-1">(comma-separated, no spaces allowed in each category, multiple categories allowed)</span>
+                  <span className="text-xs text-gray-400 ml-1">(comma-separated, multiple categories allowed, spaces are allowed in names)</span>
                 </label>
                 <input
                   type="text"
                   value={categoriesInput}
                   onChange={handleCategoriesInputChange}
                   className="w-full px-3 py-2 border rounded shadow-sm focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none transition placeholder:text-gray-400"
-                  placeholder="eg: marketing,seo,leadgen"
+                  placeholder="eg: marketing,seo,lead gen,Ground Staff"
                   maxLength={100}
                   inputMode="text"
-                  pattern="^([^ ,]+,)*([^ ,]+)?$"
-                  title="Categories separated by commas. No spaces allowed in each category."
+                  pattern={undefined}
+                  title="Categories separated by commas. Spaces are allowed in a category name."
                 />
                 {/* Show parsed categories if present */}
                 {formValues.categories && formValues.categories.length > 0 && (
@@ -503,7 +587,9 @@ const Jobs: React.FC = () => {
                     ))}
                   </div>
                 )}
-                <div className="text-xs text-gray-500 mt-1">Separate by commas. No spaces allowed in each category.</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  Separate by commas. Spaces are allowed in category names (e.g., <span className="font-mono">Ground Staff</span>).
+                </div>
               </div>
               {/* Minimum Qualification field ADDED */}
               <div className="mb-4">
@@ -537,6 +623,96 @@ const Jobs: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reorder Modal */}
+      {showReorderModal && (
+        <div
+          className="fixed left-0 top-0 z-50 w-screen h-screen bg-black/40 flex items-center justify-center backdrop-blur-sm"
+          onClick={closeReorderModal}
+        >
+          <div
+            className="rounded-lg shadow-2xl bg-white p-6 sm:p-9 max-w-md w-[94vw] animate-fadein max-h-[97vh] overflow-y-auto"
+            style={{ overscrollBehavior: "contain" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-3">
+              Move Job To New Position
+            </h3>
+            {reorderError && (
+              <div className="mb-2 rounded bg-red-100 text-red-700 px-3 py-2 border border-red-200 shadow text-sm">{reorderError}</div>
+            )}
+            {reorderSuccessMsg && (
+              <div className="mb-2 rounded bg-green-100 text-green-800 px-3 py-2 border border-green-200 shadow text-sm">{reorderSuccessMsg}</div>
+            )}
+            <form onSubmit={handleReorder}>
+              <div className="mb-3">
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Job to Move <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border rounded shadow-sm bg-gray-50"
+                  value={selectedJobId ?? ""}
+                  onChange={e => setSelectedJobId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a job</option>
+                  {reorderJobs.map((job, idx) => (
+                    <option key={job._id} value={job._id}>
+                      {typeof job.order === "number" ? `${job.order + 1}. ` : `${idx + 1}. `}
+                      {job.title} – {job.company}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-5">
+                <label className="block font-semibold text-gray-700 mb-1">
+                  New Position (1 = top)
+                  <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full px-3 py-2 border rounded shadow-sm bg-gray-50"
+                  value={targetIndex !== null ? String(targetIndex + 1) : ""}
+                  onChange={e =>
+                    setTargetIndex(e.target.value ? Number(e.target.value) - 1 : null)
+                  }
+                  required
+                >
+                  <option value="">Select position</option>
+                  {reorderJobs.map((_job, idx) => (
+                    <option key={idx} value={idx + 1}>
+                      {idx + 1} {idx === 0 ? "(Top)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-2 text-xs text-gray-600">
+                This will move the selected job to the new position in the list.<br />
+                <span className="font-bold">Note:</span> All other jobs will shift accordingly. <br />
+                Ordering is based on the visual list above.
+              </div>
+              <div className="flex justify-end gap-4 items-center mt-6">
+                <button
+                  type="submit"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2 rounded shadow transition disabled:opacity-70"
+                  disabled={reorderLoading || !selectedJobId || targetIndex == null}
+                >
+                  {reorderLoading ? "Reordering..." : "Reorder"}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeReorderModal}
+                  className="bg-gray-200 text-gray-700 font-medium px-5 py-2 rounded hover:bg-gray-300 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+            <div className="text-[0.83em] text-gray-400 mt-8 text-right">
+              (You must select both: the job and a position. Position 1 = top of the list.)
+            </div>
           </div>
         </div>
       )}

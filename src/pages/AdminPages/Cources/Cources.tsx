@@ -17,9 +17,10 @@ export interface Course {
   whoIsThisFor?: string;
   whatAchieve?: string;
   curriculum?: string | string[]; // update to match legacy and array
+  order?: number; // ordering index
 }
 
-type CourseForm = Omit<Course, "_id">;
+type CourseForm = Omit<Course, "_id" | "order">;
 
 // Curriculum helpers (for backwards compatibility: handle string or array)
 const parseCurriculum = (curriculum?: string | string[]): string[] => {
@@ -63,6 +64,8 @@ const Cources: React.FC = () => {
   });
   const [curriculumItems, setCurriculumItems] = useState<string[]>([]);
   const [deletingIdOrSlug, setDeletingIdOrSlug] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isReordering, setIsReordering] = useState<boolean>(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -81,13 +84,22 @@ const Cources: React.FC = () => {
     try {
       const baseURL = import.meta.env.VITE_API_URL;
       const response = await axios.get(`${baseURL}/api/admin/courses`);
+      let fetched: Course[] = [];
       if (Array.isArray(response.data)) {
-        setCourses(response.data);
+        fetched = response.data;
       } else if (response.data && (response.data._id || response.data.id)) {
-        setCourses([response.data]);
-      } else {
-        setCourses([]);
+        fetched = [response.data];
       }
+      // Order by order (if present), fallback to as-is
+      if (fetched.length > 0 && fetched.some(c => typeof c.order === "number")) {
+        fetched.sort((a, b) => {
+          if (typeof a.order === "number" && typeof b.order === "number") {
+            return a.order - b.order;
+          }
+          return 0;
+        });
+      }
+      setCourses(fetched);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.response?.data?.message || "Error fetching courses");
     }
@@ -286,6 +298,83 @@ const Cources: React.FC = () => {
     setCurriculumItems(prev => prev.filter((_, i) => i !== idx));
   };
 
+  // ---- REORDERING FUNCTIONALITY BELOW ----
+  const handleDragStart = (idx: number) => {
+    setDraggedIndex(idx);
+  };
+
+  const handleDragEnter = (idx: number) => {
+    if (draggedIndex === null || draggedIndex === idx) return;
+    setCourses(prev => {
+      const updated = [...prev];
+      const [moved] = updated.splice(draggedIndex, 1);
+      updated.splice(idx, 0, moved);
+      setDraggedIndex(idx);
+      return updated;
+    });
+  };
+
+  const handleDragEnd = async () => {
+    if (draggedIndex === null) return;
+    setIsReordering(true);
+    // Find what course to move and its new index
+    try {
+      // Find the moved course and its new index
+      const movedCourse = courses[draggedIndex];
+      const courseId = movedCourse._id || movedCourse.id || movedCourse.slug;
+      // New index is wherever it now is in the array
+      const targetIndex = draggedIndex;
+
+      // Actually find the moved course's original index (not always same as draggedIndex after a move)
+      // let originalOrderCourses = [...courses];
+      // Calculate the original index of movedCourse in courses before the drag!
+      // But since we reorder in-place, keep a stable ID to send to backend
+
+      // Send only if order changed (i.e., if the new index does not match original order)
+      // We'll always send for simplicity in this demo 
+      const baseURL = import.meta.env.VITE_API_URL;
+      await axios.post(`${baseURL}/api/admin/courses/reorder`, {
+        courseId,
+        targetIndex,
+      });
+      setSuccessMsg("Course reordered successfully.");
+      fetchCourses();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Error reordering courses"
+      );
+    }
+    setDraggedIndex(null);
+    setIsReordering(false);
+  };
+
+  // Keyboard accessible move up/down
+  const moveRow = async (idx: number, dir: "up" | "down") => {
+    if (loading || isReordering) return;
+    const newIndex = dir === "up" ? idx - 1 : idx + 1;
+    if (newIndex < 0 || newIndex >= courses.length) return;
+    setIsReordering(true);
+    const baseURL = import.meta.env.VITE_API_URL;
+    const courseToMove = courses[idx];
+    try {
+      await axios.post(`${baseURL}/api/admin/courses/reorder`, {
+        courseId: courseToMove._id || courseToMove.id || courseToMove.slug,
+        targetIndex: newIndex,
+      });
+      setSuccessMsg("Course reordered successfully.");
+      fetchCourses();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Error reordering courses"
+      );
+    }
+    setIsReordering(false);
+  };
+
   return (
     <div className="h-[85vh] overflow-y-auto bg-gray-50 px-2 py-6 sm:px-8">
       <div className="mb-6 flex items-center justify-between flex-wrap gap-x-4 gap-y-2">
@@ -337,6 +426,7 @@ const Cources: React.FC = () => {
             <table className="w-full border rounded overflow-hidden bg-white shadow-sm">
               <thead className="bg-gradient-to-br from-gray-100 to-gray-50">
                 <tr>
+                  <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b w-12"></th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">ID</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Slug</th>
                   <th className="py-3 px-3 font-semibold text-left text-gray-700 border-b">Title</th>
@@ -345,8 +435,51 @@ const Cources: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {courses.map((course) => (
-                  <tr key={course._id || `${course.id}-${course.slug}`} className="transition hover:bg-blue-50 group border-b last:border-b-0">
+                {courses.map((course, idx) => (
+                  <tr
+                    key={course._id || `${course.id}-${course.slug}`}
+                    className={`transition hover:bg-blue-50 group border-b last:border-b-0 ${draggedIndex === idx ? "bg-blue-100" : ""}`}
+                    draggable={!loading}
+                    onDragStart={() => handleDragStart(idx)}
+                    onDragEnter={e => {
+                      e.preventDefault();
+                      handleDragEnter(idx);
+                    }}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={e => e.preventDefault()}
+                    aria-grabbed={draggedIndex === idx}
+                    tabIndex={0}
+                  >
+                    {/* Drag handle cell */}
+                    <td className="px-2 py-3 text-gray-400 select-none cursor-move" title="Drag to reorder">
+                      <span
+                        aria-label="drag handle"
+                        style={{
+                          cursor: "grab",
+                          display: "inline-block",
+                          userSelect: "none",
+                          opacity: isReordering ? 0.35 : 0.95,
+                        }}
+                        tabIndex={-1}
+                        onKeyDown={e => {
+                          // Keyboard move support: ctrl+up/down
+                          if (e.ctrlKey && e.key === "ArrowUp") {
+                            moveRow(idx, "up");
+                            e.preventDefault();
+                          } else if (e.ctrlKey && e.key === "ArrowDown") {
+                            moveRow(idx, "down");
+                            e.preventDefault();
+                          }
+                        }}
+                      >
+                        <svg width={22} height={22} viewBox="0 0 20 20">
+                          <circle cx="7" cy="7" r="1.1" fill="currentColor" opacity=".68"/>
+                          <circle cx="13" cy="7" r="1.1" fill="currentColor" opacity=".68"/>
+                          <circle cx="7" cy="13" r="1.1" fill="currentColor" opacity=".68"/>
+                          <circle cx="13" cy="13" r="1.1" fill="currentColor" opacity=".68"/>
+                        </svg>
+                      </span>
+                    </td>
                     <td className="px-3 py-3 font-mono text-xs text-gray-800">{course.id}</td>
                     <td className="px-3 py-3 font-mono text-xs text-blue-800">{course.slug}</td>
                     <td className="px-3 py-3 font-semibold text-gray-900">{course.title}</td>
@@ -379,6 +512,33 @@ const Cources: React.FC = () => {
                       >
                         <svg viewBox="0 0 20 20" className="w-4 h-4 mr-1 inline-block" fill="none"><path d="M6.5 4a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7H3a1 1 0 1 1 0-2h4V4zm2 0v1h3V4h-3zm-3 3h9v10H5V7zm3 2a1 1 0 0 1 2 0v5a1 1 0 1 1-2 0V9z" fill="currentColor"/></svg>
                         Delete
+                      </button>
+                      {/* Move up/down buttons for keyboard users and accessibility */}
+                      <button
+                        className="p-1 rounded hover:bg-blue-50 focus:outline-none"
+                        aria-label="Move up"
+                        type="button"
+                        disabled={idx === 0 || loading || isReordering}
+                        onClick={() => moveRow(idx, "up")}
+                        tabIndex={0}
+                        style={{ color: idx === 0 ? "#b0b0b0" : "#1e40af" }}
+                      >
+                        <svg viewBox="0 0 20 20" width={14} height={14} fill="currentColor">
+                          <path d="M10 5.18l5.09 5.09a1 1 0 0 1-1.42 1.42l-3.67-3.67-3.67 3.67a1 1 0 0 1-1.42-1.42L10 5.18z"/>
+                        </svg>
+                      </button>
+                      <button
+                        className="p-1 rounded hover:bg-blue-50 focus:outline-none"
+                        aria-label="Move down"
+                        type="button"
+                        disabled={idx === courses.length - 1 || loading || isReordering}
+                        onClick={() => moveRow(idx, "down")}
+                        tabIndex={0}
+                        style={{ color: idx === courses.length - 1 ? "#b0b0b0" : "#1e40af" }}
+                      >
+                        <svg viewBox="0 0 20 20" width={14} height={14} fill="currentColor">
+                          <path d="M10 14.82l-5.09-5.09a1 1 0 0 1 1.42-1.42l3.67 3.67 3.67-3.67a1 1 0 1 1 1.42 1.42L10 14.82z"/>
+                        </svg>
                       </button>
                     </td>
                   </tr>
